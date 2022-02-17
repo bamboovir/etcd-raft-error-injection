@@ -1,0 +1,4 @@
+etcd/
+bin/
+raft_kv_log*
+vendor
