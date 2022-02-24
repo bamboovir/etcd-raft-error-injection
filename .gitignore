@@ -17,3 +17,5 @@
 # Go workspace file
 go.work
 tmp/
+
+raft_kv_log*

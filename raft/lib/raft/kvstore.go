@@ -91,7 +91,7 @@ func (s *kvstore) readCommits(commitC <-chan *commit, errorC <-chan error) {
 			var dataKv kv
 			dec := gob.NewDecoder(bytes.NewBufferString(data))
 			if err := dec.Decode(&dataKv); err != nil {
-				log.Fatalf("raftexample: could not decode message (%v)", err)
+				log.Fatalf("raft_kv: could not decode message (%v)", err)
 			}
 			s.mu.Lock()
 			s.kvStore[dataKv.Key] = dataKv.Val

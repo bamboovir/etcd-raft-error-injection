@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import fire
-from .raft_hypervisor import RaftHypervisor
+from .raft_hypervisor import RaftHypervisor, RaftHypervisorStarter
 from .vm import VM, VMStarter
 import docker
 import logging
@@ -14,99 +14,162 @@ logger = logging.getLogger(__name__)
 class RaftTest:
     def __init__(
         self,
-        raft_cluster_size: int,
         test_report_path: str,
+        load_test_script_path: str,
+        raft_cluster_size: int = 3,
         raft_image: str = "docker.io/library/raft:dev",
+        load_test_image: str = "docker.io/grafana/k6:latest",
+        timeout_secs: int = 100,
     ) -> None:
         self._docker_client = docker.from_env()
         self._test_report_path = Path(test_report_path)
+        self._load_test_script_path = Path(load_test_script_path)
         self._raft_image = raft_image
+        self._load_test_image = load_test_image
         self._raft_cluster_size = raft_cluster_size
+        self._timeout_secs = timeout_secs
 
-    def _start_raft_cluster(self) -> tuple[list[VM], Exception | None]:
-        cmd_cluster = ",".join(
-            [f"http://127.0.0.1:{8001 + i}" for i in range(self._raft_cluster_size)]
+    def _start_raft_hypervisor(self) -> tuple[RaftHypervisor, Exception | None]:
+        return RaftHypervisorStarter(
+            self._raft_cluster_size,
+            self._test_report_path,
+            self._raft_image,
+        ).start(self._docker_client)
+
+    def _start_raft_load_tester(
+        self, hypervisor: RaftHypervisor, leader_id: str
+    ) -> tuple[VM, Exception | None]:
+        return hypervisor.start_load_test(
+            leader_id,
+            self._load_test_image,
+            self._load_test_script_path,
+            self._docker_client,
         )
-        raft_cluster = []
-        for id in range(1, self._raft_cluster_size + 1):
-            raft_node, err = VMStarter(
-                name=f"raft_{id}",
-                image=self._raft_image,
-                command=[
-                    "--id",
-                    f"{id}",
-                    "--cluster",
-                    cmd_cluster,
-                    "--port",
-                    f"{9000 + id}",
-                ],
-                network="host",
-            ).start(self._docker_client)
-            if err != None:
-                return None, err
-            raft_cluster.append(raft_node)
-        return raft_cluster, None
 
     def baseline(self) -> None:
-        raft_cluster, err = self._start_raft_cluster()
+        hypervisor, err = self._start_raft_hypervisor()
         if err != None:
             raise err
-        hypervisor = RaftHypervisor(raft_cluster, self._test_report_path)
-        hypervisor.wait()
+        leader_id = hypervisor.leader()
+        _, err = self._start_raft_load_tester(
+            hypervisor,
+            leader_id,
+        )
+        if err != None:
+            raise err
+        hypervisor.wait_and_stop_all(self._timeout_secs)
 
     def crashing_behavior_on_leader(self) -> None:
-        raft_cluster, err = self._start_raft_cluster()
+        hypervisor, err = self._start_raft_hypervisor()
         if err != None:
             raise err
-        hypervisor = RaftHypervisor(raft_cluster, self._test_report_path)
-        leader = hypervisor.leader()
-        leader.stop()
+        leader_id = hypervisor.leader()
+        hypervisor.stop(leader_id)
+        leader_id = hypervisor.leader()
+        _, err = self._start_raft_load_tester(
+            hypervisor,
+            leader_id,
+        )
+        if err != None:
+            raise err
+        hypervisor.wait_and_stop_all(self._timeout_secs)
 
     def crashing_behavior_on_follower(self) -> None:
-        raft_cluster, err = self._start_raft_cluster()
+        hypervisor, err = self._start_raft_hypervisor()
         if err != None:
             raise err
-        hypervisor = RaftHypervisor(raft_cluster, self._test_report_path)
         followers = hypervisor.followers()
         if len(followers) == 0:
             raise ValueError("no followers")
-        followers[0].stop()
+        hypervisor.stop(followers[0])
+        leader_id = hypervisor.leader()
+        _, err = self._start_raft_load_tester(
+            hypervisor,
+            leader_id,
+        )
+        if err != None:
+            raise err
+        hypervisor.wait_and_stop_all(self._timeout_secs)
 
     def slow_cpu_on_leader(self) -> None:
-        raft_cluster, err = self._start_raft_cluster()
+        hypervisor, err = self._start_raft_hypervisor()
         if err != None:
             raise err
-        hypervisor = RaftHypervisor(raft_cluster, self._test_report_path)
-        leader = hypervisor.leader()
-        leader.with_slow_cpu()
+
+        leader_id = hypervisor.leader()
+        leader = hypervisor.find_raft_node_by_id(leader_id)
+        if leader == None:
+            raise ValueError("no leader")
+        leader.vm.with_slow_cpu()
+
+        _, err = self._start_raft_load_tester(
+            hypervisor,
+            leader_id,
+        )
+        if err != None:
+            raise err
+        hypervisor.wait_and_stop_all(self._timeout_secs)
 
     def slow_cpu_on_follower(self) -> None:
-        raft_cluster, err = self._start_raft_cluster()
+        hypervisor, err = self._start_raft_hypervisor()
         if err != None:
             raise err
-        hypervisor = RaftHypervisor(raft_cluster)
         followers = hypervisor.followers()
         if len(followers) == 0:
             raise ValueError("no followers")
-        followers[0].with_slow_cpu()
+
+        follower = hypervisor.find_raft_node_by_id(followers[0])
+        if follower == None:
+            raise ValueError("no follower")
+        follower.vm.with_slow_cpu()
+        leader_id = hypervisor.leader()
+        _, err = self._start_raft_load_tester(
+            hypervisor,
+            leader_id,
+        )
+        if err != None:
+            raise err
+        hypervisor.wait_and_stop_all(self._timeout_secs)
 
     def memory_contention_on_leader(self) -> None:
-        raft_cluster, err = self._start_raft_cluster()
+        hypervisor, err = self._start_raft_hypervisor()
         if err != None:
             raise err
-        hypervisor = RaftHypervisor(raft_cluster, self._test_report_path)
-        leader = hypervisor.leader()
-        leader.with_memory_contention()
+
+        leader_id = hypervisor.leader()
+        leader = hypervisor.find_raft_node_by_id(leader_id)
+        if leader == None:
+            raise ValueError("no leader")
+        leader.vm.with_memory_contention()
+
+        _, err = self._start_raft_load_tester(
+            hypervisor,
+            leader_id,
+        )
+        if err != None:
+            raise err
+        hypervisor.wait_and_stop_all(self._timeout_secs)
 
     def memory_contention_on_follower(self) -> None:
-        raft_cluster, err = self._start_raft_cluster()
+        hypervisor, err = self._start_raft_hypervisor()
         if err != None:
             raise err
-        hypervisor = RaftHypervisor(raft_cluster, self._test_report_path)
         followers = hypervisor.followers()
         if len(followers) == 0:
             raise ValueError("no followers")
-        followers[0].with_memory_contention()
+
+        follower = hypervisor.find_raft_node_by_id(followers[0])
+        if follower == None:
+            raise ValueError("no follower")
+        follower.vm.with_memory_contention()
+        leader_id = hypervisor.leader()
+        _, err = self._start_raft_load_tester(
+            hypervisor,
+            leader_id,
+        )
+        if err != None:
+            raise err
+        hypervisor.wait_and_stop_all(self._timeout_secs)
 
 
 def main():

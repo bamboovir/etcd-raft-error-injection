@@ -17,7 +17,7 @@ setup(
     packages=["."],
     include_package_data=True,
     python_requires=">=3.7,",
-    install_requires=["docker==5.0.3", "fire==0.4.0"],
+    install_requires=["docker==5.0.3", "fire==0.4.0", "requests==2.27.1"],
     extras_require={
         "dev": [
             "black",

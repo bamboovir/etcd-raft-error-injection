@@ -15,6 +15,9 @@ if ! [ -x "$(command -v docker)" ]; then
 fi
 
 PROJECT_ROOT=$(git rev-parse --show-toplevel)
+
+docker image rm "raft:dev"
+
 bash "${PROJECT_ROOT}/raft/script/raft/build.bash"
 
 docker buildx build "${PROJECT_ROOT}/raft/bin" -f "${PROJECT_ROOT}/raft/docker/Dockerfile.arm64" -t raft:dev

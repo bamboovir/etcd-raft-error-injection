@@ -13,12 +13,14 @@ logger = logging.getLogger(__name__)
 
 class VMStarter:
     def __init__(
-        self, name: str, image: str, command: list[str], network: str
+        self, name: str, image: str, command: list[str], network: str, volumes: dict, ports: dict
     ) -> VMStarter:
         self.name = name
         self.image = image
         self.command = [*command]
         self.network = network
+        self.volumes = {**volumes}
+        self.ports = {**ports}
 
     def start(self, docker_client: DockerClient) -> tuple[VM, Exception | None]:
         vm = None
@@ -31,6 +33,8 @@ class VMStarter:
                 name=self.name,
                 network=self.network,
                 oom_kill_disable=True,
+                volumes=self.volumes,
+                ports=self.ports,
             )
             vm = VM(self.name, self.image, self.command, self.network, container)
         except DockerException as err:

@@ -15,12 +15,28 @@
 package raft
 
 import (
+	"io"
+	"os"
 	"strings"
 
+	"github.com/bamboovir/raft/lib/metrics"
 	"go.etcd.io/etcd/raft/v3/raftpb"
 )
 
-func Start(cluster string, id int, kvport int, join bool) {
+func Start(cluster string, id int, kvport int, monitorAddr string, metricsLogPath string, join bool) (err error) {
+	var logF io.WriteCloser
+	if metricsLogPath == "-" {
+		logF = os.Stdout
+	} else {
+		logF, err = os.OpenFile(metricsLogPath, os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return err
+		}
+	}
+	defer logF.Close()
+
+	metricsLogger := metrics.NewLogger(logF)
+
 	proposeC := make(chan string)
 	defer close(proposeC)
 	confChangeC := make(chan raftpb.ConfChange)
@@ -29,10 +45,13 @@ func Start(cluster string, id int, kvport int, join bool) {
 	// raft provides a commit stream for the proposals from the http api
 	var kvs *kvstore
 	getSnapshot := func() ([]byte, error) { return kvs.getSnapshot() }
-	commitC, errorC, snapshotterReady := newRaftNode(id, strings.Split(cluster, ","), join, getSnapshot, proposeC, confChangeC)
+	rc, commitC, errorC, snapshotterReady := newRaftNode(id, strings.Split(cluster, ","), join, getSnapshot, proposeC, confChangeC, metricsLogger)
+
+	raftStateService := newHttpRaftStateAPI(rc)
+	raftStateService.serve(monitorAddr, errorC)
 
 	kvs = newKVStore(<-snapshotterReady, proposeC, commitC, errorC)
-
 	// the key-value http handler will propose updates to raft
 	serveHttpKVAPI(kvs, kvport, confChangeC, errorC)
+	return nil
 }

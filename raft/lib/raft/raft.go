@@ -24,6 +24,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bamboovir/raft/lib/metrics"
+	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/client/pkg/v3/fileutil"
 	"go.etcd.io/etcd/client/pkg/v3/types"
 	"go.etcd.io/etcd/raft/v3"
@@ -33,6 +35,8 @@ import (
 	stats "go.etcd.io/etcd/server/v3/etcdserver/api/v2stats"
 	"go.etcd.io/etcd/server/v3/storage/wal"
 	"go.etcd.io/etcd/server/v3/storage/wal/walpb"
+
+	"encoding/binary"
 
 	"go.uber.org/zap"
 )
@@ -74,7 +78,8 @@ type raftNode struct {
 	httpstopc chan struct{} // signals http server to shutdown
 	httpdonec chan struct{} // signals http server shutdown complete
 
-	logger *zap.Logger
+	logger        *zap.Logger
+	metricsLogger *logrus.Logger
 }
 
 var defaultSnapshotCount uint64 = 10000
@@ -85,7 +90,7 @@ var defaultSnapshotCount uint64 = 10000
 // commit channel, followed by a nil message (to indicate the channel is
 // current), then new log entries. To shutdown, close proposeC and read errorC.
 func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, error), proposeC <-chan string,
-	confChangeC <-chan raftpb.ConfChange) (<-chan *commit, <-chan error, <-chan *snap.Snapshotter) {
+	confChangeC <-chan raftpb.ConfChange, metricsLogger *logrus.Logger) (*raftNode, <-chan *commit, <-chan error, <-chan *snap.Snapshotter) {
 
 	commitC := make(chan *commit)
 	errorC := make(chan error)
@@ -106,13 +111,13 @@ func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, 
 		httpstopc:   make(chan struct{}),
 		httpdonec:   make(chan struct{}),
 
-		logger: zap.NewExample(),
-
+		logger:           zap.NewExample(),
+		metricsLogger:    metricsLogger,
 		snapshotterReady: make(chan *snap.Snapshotter, 1),
 		// rest of structure populated after WAL replay
 	}
 	go rc.startRaft()
-	return commitC, errorC, rc.snapshotterReady
+	return rc, commitC, errorC, rc.snapshotterReady
 }
 
 func (rc *raftNode) saveSnap(snap raftpb.Snapshot) error {
@@ -321,7 +326,6 @@ func (rc *raftNode) startRaft() {
 			rc.transport.AddPeer(types.ID(i+1), []string{rc.peers[i]})
 		}
 	}
-
 	go rc.serveRaft()
 	go rc.serveChannels()
 }
@@ -423,8 +427,18 @@ func (rc *raftNode) serveChannels() {
 				if !ok {
 					rc.proposeC = nil
 				} else {
+					msg := []byte(prop)
+					msgSize := binary.Size(msg)
+					begin := time.Now()
 					// blocks until accepted by raft state machine
-					rc.node.Propose(context.TODO(), []byte(prop))
+					rc.node.Propose(context.TODO(), msg)
+					end := time.Now()
+					rc.metricsLogger.WithField("src", "metrics.latency").WithFields(logrus.Fields{
+						"data": metrics.NewLatencyEntry(end, end.Sub(begin)),
+					}).Info()
+					rc.metricsLogger.WithField("src", "metrics.throughput").WithFields(logrus.Fields{
+						"data": metrics.NewThroughputEntry("", end, msgSize),
+					}).Info()
 				}
 
 			case cc, ok := <-rc.confChangeC:

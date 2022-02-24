@@ -20,15 +20,19 @@ func ExitWrapper(err error) {
 }
 
 type RootArgs struct {
-	id      int
-	port    int
-	cluster string
+	id             int
+	port           int
+	monitorAddr    string
+	metricsLogPath string
+	cluster        string
 }
 
 func RootArgsCollector(cmd *cobra.Command) *RootArgs {
 	args := &RootArgs{}
 	cmd.Flags().IntVar(&args.id, "id", 1, "node ID")
 	cmd.Flags().IntVar(&args.port, "port", 6666, "key-value server port")
+	cmd.Flags().StringVar(&args.monitorAddr, "monitor_addr", "127.0.0.1:5000", "raft state monitor server addr")
+	cmd.Flags().StringVar(&args.metricsLogPath, "metrics_log_path", "-", "raft metrics log path")
 	cmd.Flags().StringVar(&args.cluster, "cluster", "http://127.0.0.1:8000", "comma separated cluster peers")
 	return args
 }
@@ -36,7 +40,12 @@ func RootArgsCollector(cmd *cobra.Command) *RootArgs {
 func RootCMDMain(args *RootArgs) (err error) {
 	logger.Infof("raft clusters [%s]", args.cluster)
 	logger.Infof("kv server [http://127.0.0.1:%d]", args.port)
-	raft.Start(args.cluster, args.id, args.port, false)
+	logger.Infof("raft state monitor server [%s]", args.monitorAddr)
+	logger.Infof("raft metrics log path [%s]", args.metricsLogPath)
+	err = raft.Start(args.cluster, args.id, args.port, args.monitorAddr, args.metricsLogPath, false)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
