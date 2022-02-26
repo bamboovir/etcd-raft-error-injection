@@ -62,7 +62,7 @@ class VM:
     # https://docs.docker.com/config/containers/resource_constraints/#cpu
     def with_slow_cpu(self, cpus: float = 0.1) -> None:
         cpu_period = 100000
-        cpu_quota = cpu_period * cpus
+        cpu_quota = int(cpu_period * cpus)
         with SuppressWithLogger(logger, DockerException):
             self.container.update(cpu_period=cpu_period, cpu_quota=cpu_quota)
         return None

@@ -20,11 +20,26 @@ export const options = {
 };
 
 export default function () {
-  const baseURL = `${__ENV.BASEURL}`
-  const url = baseURL + "/key"
-  const value = randomString(5)
-  const res = http.put(url, value)
-  check(res, {
-    'is status 200': (r) => r.status === 200,
+  const raftClusterAddrs = `${__ENV.RAFT_CLUSTER_ADDRS}`
+  const raftClusters = raftClusterAddrs.split(",")
+  const sendRequestToNode = (addr) => {
+    const url = addr + "/key"
+    const value = randomString(5)
+    const res = http.put(url, value)
+    return res.status === 200
+  }
+  const sendRequestToCluster = (cluster) => {
+    for (let addr of cluster) {
+      let rst = sendRequestToNode(addr)
+      if (rst) {
+        return true
+      }
+    }
+    return false
+  }
+
+  const rst = sendRequestToCluster(raftClusters)
+  check(rst, {
+    'ok': (r) => r,
   });
 }
