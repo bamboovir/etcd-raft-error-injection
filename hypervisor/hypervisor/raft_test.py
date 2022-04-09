@@ -1,4 +1,5 @@
 from pathlib import Path
+from time import sleep
 
 import fire
 from .raft_hypervisor import RaftHypervisor
@@ -28,7 +29,11 @@ class RaftTest:
         self._raft_cluster_size = raft_cluster_size
         self._timeout_secs = timeout_secs
 
+    def _wait_for_inject(self) -> None:
+        sleep(self._timeout_secs // 2)
+
     def _start_raft_hypervisor(self) -> RaftHypervisor:
+        self._raft_test_report_path.mkdir(parents=True, exist_ok=True)
         hypervisor, err = RaftHypervisor.start(
             self._raft_cluster_size,
             self._raft_test_report_path,
@@ -48,49 +53,156 @@ class RaftTest:
 
     def crashing_behavior_on_leader(self) -> None:
         hypervisor = self._start_raft_hypervisor()
+        self._wait_for_inject()
         leader_id = hypervisor.raft_cluster.leader_id()
         hypervisor.raft_cluster.stop(leader_id)
-        hypervisor.wait_and_stop(self._timeout_secs)
+        hypervisor.wait_and_stop(self._timeout_secs // 2)
 
     def crashing_behavior_on_follower(self) -> None:
         hypervisor = self._start_raft_hypervisor()
+        self._wait_for_inject()
         follower_ids = hypervisor.raft_cluster.follower_ids()
         if len(follower_ids) == 0:
             raise ValueError("no followers")
         hypervisor.raft_cluster.stop(follower_ids[0])
-        hypervisor.wait_and_stop(self._timeout_secs)
+        hypervisor.wait_and_stop(self._timeout_secs // 2)
 
     def slow_cpu_on_leader(self) -> None:
         hypervisor = self._start_raft_hypervisor()
+        self._wait_for_inject()
         leader = hypervisor.raft_cluster.leader()
         leader.vm.with_slow_cpu()
-        hypervisor.wait_and_stop(self._timeout_secs)
+        hypervisor.wait_and_stop(self._timeout_secs // 2)
 
     def slow_cpu_on_follower(self) -> None:
         hypervisor = self._start_raft_hypervisor()
+        self._wait_for_inject()
         followers = hypervisor.raft_cluster.followers()
         if len(followers) == 0:
             raise ValueError("no followers")
         follower = followers[0]
         follower.vm.with_slow_cpu()
-        hypervisor.wait_and_stop(self._timeout_secs)
+        hypervisor.wait_and_stop(self._timeout_secs // 2)
 
     def memory_contention_on_leader(self) -> None:
         hypervisor = self._start_raft_hypervisor()
+        self._wait_for_inject()
         leader = hypervisor.raft_cluster.leader()
         leader.vm.with_memory_contention()
-        hypervisor.wait_and_stop(self._timeout_secs)
+        hypervisor.wait_and_stop(self._timeout_secs // 2)
 
     def memory_contention_on_follower(self) -> None:
         hypervisor = self._start_raft_hypervisor()
+        self._wait_for_inject()
         followers = hypervisor.raft_cluster.followers()
         if len(followers) == 0:
             raise ValueError("no followers")
         follower = followers[0]
         follower.vm.with_memory_contention()
-        hypervisor.wait_and_stop(self._timeout_secs)
+        hypervisor.wait_and_stop(self._timeout_secs // 2)
 
 
+    def slow_cpu_on_leader_0_2(self) -> None:
+        hypervisor = self._start_raft_hypervisor()
+        self._wait_for_inject()
+        leader = hypervisor.raft_cluster.leader()
+        leader.vm.with_slow_cpu(0.2)
+        hypervisor.wait_and_stop(self._timeout_secs // 2)
+
+    def slow_cpu_on_follower_0_2(self) -> None:
+        hypervisor = self._start_raft_hypervisor()
+        self._wait_for_inject()
+        followers = hypervisor.raft_cluster.followers()
+        if len(followers) == 0:
+            raise ValueError("no followers")
+        follower = followers[0]
+        follower.vm.with_slow_cpu(0.2)
+        hypervisor.wait_and_stop(self._timeout_secs // 2)
+    
+    def slow_cpu_on_leader_0_4(self) -> None:
+        hypervisor = self._start_raft_hypervisor()
+        self._wait_for_inject()
+        leader = hypervisor.raft_cluster.leader()
+        leader.vm.with_slow_cpu(0.4)
+        hypervisor.wait_and_stop(self._timeout_secs // 2)
+
+    def slow_cpu_on_follower_0_4(self) -> None:
+        hypervisor = self._start_raft_hypervisor()
+        self._wait_for_inject()
+        followers = hypervisor.raft_cluster.followers()
+        if len(followers) == 0:
+            raise ValueError("no followers")
+        follower = followers[0]
+        follower.vm.with_slow_cpu(0.4)
+        hypervisor.wait_and_stop(self._timeout_secs // 2)
+
+    def slow_cpu_on_leader_0_8(self) -> None:
+        hypervisor = self._start_raft_hypervisor()
+        self._wait_for_inject()
+        leader = hypervisor.raft_cluster.leader()
+        leader.vm.with_slow_cpu(0.8)
+        hypervisor.wait_and_stop(self._timeout_secs // 2)
+
+    def slow_cpu_on_follower_0_8(self) -> None:
+        hypervisor = self._start_raft_hypervisor()
+        self._wait_for_inject()
+        followers = hypervisor.raft_cluster.followers()
+        if len(followers) == 0:
+            raise ValueError("no followers")
+        follower = followers[0]
+        follower.vm.with_slow_cpu(0.8)
+        hypervisor.wait_and_stop(self._timeout_secs // 2)
+
+    def memory_contention_on_leader_15(self) -> None:
+        hypervisor = self._start_raft_hypervisor()
+        self._wait_for_inject()
+        leader = hypervisor.raft_cluster.leader()
+        leader.vm.with_memory_contention(mem_limit="15m", memswap_limit="25m")
+        hypervisor.wait_and_stop(self._timeout_secs // 2)
+
+    def memory_contention_on_follower_15(self) -> None:
+        hypervisor = self._start_raft_hypervisor()
+        self._wait_for_inject()
+        followers = hypervisor.raft_cluster.followers()
+        if len(followers) == 0:
+            raise ValueError("no followers")
+        follower = followers[0]
+        follower.vm.with_memory_contention(mem_limit="15m", memswap_limit="25m")
+        hypervisor.wait_and_stop(self._timeout_secs // 2)
+    
+    def memory_contention_on_leader_20(self) -> None:
+        hypervisor = self._start_raft_hypervisor()
+        self._wait_for_inject()
+        leader = hypervisor.raft_cluster.leader()
+        leader.vm.with_memory_contention(mem_limit="20m", memswap_limit="30m")
+        hypervisor.wait_and_stop(self._timeout_secs // 2)
+
+    def memory_contention_on_follower_20(self) -> None:
+        hypervisor = self._start_raft_hypervisor()
+        self._wait_for_inject()
+        followers = hypervisor.raft_cluster.followers()
+        if len(followers) == 0:
+            raise ValueError("no followers")
+        follower = followers[0]
+        follower.vm.with_memory_contention(mem_limit="20m", memswap_limit="30m")
+        hypervisor.wait_and_stop(self._timeout_secs // 2)
+
+    def memory_contention_on_leader_25(self) -> None:
+        hypervisor = self._start_raft_hypervisor()
+        self._wait_for_inject()
+        leader = hypervisor.raft_cluster.leader()
+        leader.vm.with_memory_contention(mem_limit="25m", memswap_limit="35m")
+        hypervisor.wait_and_stop(self._timeout_secs // 2)
+
+    def memory_contention_on_follower_25(self) -> None:
+        hypervisor = self._start_raft_hypervisor()
+        self._wait_for_inject()
+        followers = hypervisor.raft_cluster.followers()
+        if len(followers) == 0:
+            raise ValueError("no followers")
+        follower = followers[0]
+        follower.vm.with_memory_contention(mem_limit="25m", memswap_limit="35m")
+        hypervisor.wait_and_stop(self._timeout_secs // 2)
 def main():
     fire.Fire(RaftTest)
 

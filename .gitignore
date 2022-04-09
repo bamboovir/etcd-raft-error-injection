@@ -19,3 +19,5 @@ go.work
 tmp/
 
 raft_kv_log*
+.DS_Store
+k6
